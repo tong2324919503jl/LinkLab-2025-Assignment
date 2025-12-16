@@ -18,6 +18,7 @@ enum class RelocationType {
     R_X86_64_PC32, // 32-bit PC-relative addressing
     R_X86_64_64, // 64-bit absolute addressing
     R_X86_64_32S, // 32-bit signed absolute addressing
+    R_X86_64_GOTPCREL // 32-bit PC-relative GOT address
 };
 
 // Relocation entry
@@ -148,13 +149,16 @@ struct ProgramHeader {
 
 struct FLEObject {
     std::string name; // Object name
-    std::string type; // ".obj" or ".exe"
+    std::string type; // ".obj", ".exe", ".ar" or ".so"
     std::map<std::string, FLESection> sections; // Section name -> section data
     std::vector<Symbol> symbols; // Global symbol table
     std::vector<ProgramHeader> phdrs; // Program headers (for .exe)
     std::vector<SectionHeader> shdrs; // Section headers
     std::vector<FLEObject> members; // Members of archive
     size_t entry = 0; // Entry point (for .exe)
+
+    std::vector<std::string> needed; // List of shared libraries this object depends on (e.g., "libfoo.so")
+    std::vector<Relocation> dyn_relocs; // Dynamic relocations
 };
 
 class FLEWriter {
@@ -225,6 +229,25 @@ public:
         result["shdrs"] = shdrs_json;
     }
 
+    void write_needed(const std::vector<std::string>& needed)
+    {
+        result["needed"] = needed;
+    }
+
+    void write_dynamic_relocs(const std::vector<Relocation>& relocs)
+    {
+        json relocs_json = json::array();
+        for (const auto& reloc : relocs) {
+            json reloc_json;
+            reloc_json["type"] = reloc.type;
+            reloc_json["offset"] = reloc.offset;
+            reloc_json["symbol"] = reloc.symbol;
+            reloc_json["addend"] = reloc.addend;
+            relocs_json.push_back(reloc_json);
+        }
+        result["dyn_relocs"] = relocs_json;
+    }
+
 private:
     std::string current_section;
     json result;
@@ -268,20 +291,20 @@ void FLE_nm(const FLEObject& obj);
  */
 void FLE_exec(const FLEObject& obj);
 
+struct LinkerOptions {
+    std::string outputFile = "a.out"; // 输出文件名 (用于设置 .so 的 name 属性)
+    bool shared = false; // 是否生成共享库 (-shared)
+    std::string entryPoint = "_start"; // 入口点名称 (默认为 _start)
+    bool is_static = false; // 是否强制静态链接 (-static)
+};
+
 /**
- * Link multiple FLE objects into an executable
+ * Link multiple FLE objects into an executable or shared library
  * @param objects Vector of FLE objects to link
- * @return A new FLE object of type ".exe"
- *
- * The linker should:
- * 1. Merge all sections with the same name
- * 2. Resolve symbols according to their binding:
- *    - Multiple strong symbols with same name: error
- *    - Strong and weak symbols: use strong
- *    - Multiple weak symbols: use first one
- * 3. Process relocations
+ * @param options Linker configuration options
+ * @return A new FLE object (type ".exe" or ".so")
  */
-FLEObject FLE_ld(const std::vector<FLEObject>& objects);
+FLEObject FLE_ld(const std::vector<FLEObject>& objects, const LinkerOptions& options);
 
 /**
  * Read FLE object file

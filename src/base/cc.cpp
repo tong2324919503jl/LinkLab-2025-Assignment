@@ -49,7 +49,10 @@ constexpr auto RELOCATION_FORMATS = std::array {
     std::pair { "R_X86_64_PLT32"sv, RelocationFormat { ".rel"sv, 4 } },
     std::pair { "R_X86_64_64"sv, RelocationFormat { ".abs64"sv, 8 } },
     std::pair { "R_X86_64_32"sv, RelocationFormat { ".abs"sv, 4 } },
-    std::pair { "R_X86_64_32S"sv, RelocationFormat { ".abs32s"sv, 4 } }
+    std::pair { "R_X86_64_32S"sv, RelocationFormat { ".abs32s"sv, 4 } },
+    std::pair { "R_X86_64_GOTPCREL"sv, RelocationFormat { ".gotpcrel"sv, 4 } },
+    std::pair { "R_X86_64_GOTPCRELX"sv, RelocationFormat { ".gotpcrel"sv, 4 } },
+    std::pair { "R_X86_64_REX_GOTPCRELX"sv, RelocationFormat { ".gotpcrel"sv, 4 } }
 };
 
 // 解析符号表
@@ -103,7 +106,7 @@ std::map<int, std::pair<int, std::string>> parse_relocations(
     };
 
     std::map<int, std::pair<int, std::string>> relocations;
-    const auto reloc_dump = execute_command(fmt::format("readelf -r {}", binary));
+    const auto reloc_dump = execute_command(fmt::format("readelf -rW {}", binary));
     bool in_section = false;
 
     for (const auto& line : splitlines(reloc_dump)) {
@@ -214,7 +217,6 @@ std::vector<std::string> elf_to_fle(
 
 // 编译选项
 constexpr auto COMPILER_FLAGS = std::array {
-    "-static"sv,
     "-fno-common"sv,
     "-nostdlib"sv,
     "-ffreestanding"sv,
@@ -234,6 +236,18 @@ void FLE_cc(const std::vector<std::string>& options)
 
     // 编译命令
     std::vector<std::string> gcc_cmd = { "gcc", "-c" };
+
+    bool no_static = false;
+    for (const auto& opt : options) {
+        if (opt == "-fPIC" || opt == "-fpic") {
+            no_static = true;
+            break;
+        }
+    }
+
+    if (!no_static) {
+        gcc_cmd.push_back("-static");
+    }
     gcc_cmd.insert(gcc_cmd.end(), COMPILER_FLAGS.begin(), COMPILER_FLAGS.end());
     gcc_cmd.insert(gcc_cmd.end(), options.begin(), options.end());
 

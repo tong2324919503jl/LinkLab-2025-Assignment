@@ -1,3 +1,4 @@
+#include "argparse.hpp"
 #include "fle.hpp"
 #include "string_utils.hpp"
 #include <csignal>
@@ -50,6 +51,17 @@ void segv_handler(int sig, siginfo_t* si, void* ctx)
     raise(sig);
 }
 
+namespace fs = std::filesystem;
+
+/**
+ * 检查文件是否存在
+ */
+bool file_exists(const std::string& path)
+{
+    std::error_code ec;
+    return fs::exists(path, ec) && fs::is_regular_file(path, ec);
+}
+
 // 辅助函数：解析程序头
 static void parse_program_headers(const json& j, FLEObject& obj)
 {
@@ -93,6 +105,8 @@ static RelocationType parse_relocation_type(const std::string& type_str)
         return RelocationType::R_X86_64_32;
     if (type_str == "abs32s")
         return RelocationType::R_X86_64_32S;
+    if (type_str == "gotpcrel")
+        return RelocationType::R_X86_64_GOTPCREL;
     throw std::runtime_error("Invalid relocation type: " + type_str);
 }
 
@@ -185,7 +199,7 @@ static FLEObject parse_fle_from_json(const json& j, const std::string& name)
                 }
             } else if (prefix == "❓") {
                 std::string reloc_str = trim(content);
-                std::regex reloc_pattern(R"(\.(rel|abs64|abs|abs32s)\(([\w.]+)\s*([-+])\s*([0-9a-fA-F]+)\))");
+                std::regex reloc_pattern(R"(\.(rel|abs64|abs|abs32s|gotpcrel)\(([\w.]+)\s*([-+])\s*([0-9a-fA-F]+)\))");
                 std::smatch match;
 
                 if (!std::regex_match(reloc_str, match, reloc_pattern)) {
@@ -252,6 +266,63 @@ FLEObject load_fle(const std::string& file)
     return parse_fle_from_json(j, get_basename(file));
 }
 
+/**
+ * 库文件搜索逻辑
+ * @param lib_name 库名，如 "m" (对应 -lm)
+ * @param library_paths 搜索路径列表 (-L)
+ * @param force_static 是否强制静态链接 (-static)
+ * @return 找到的库文件的完整路径
+ * @throw std::runtime_error 如果找不到库
+ */
+std::string find_library(const std::string& lib_name,
+    const std::vector<std::string>& library_paths,
+    bool force_static)
+{
+    // 1. 名字扩展 (Name Expansion)
+    // 我们的实验约定：动态库是 .so，静态库是 .ar
+    std::string dynamic_name = "lib" + lib_name + ".fso";
+    std::string static_name = "lib" + lib_name + ".fa";
+
+    // 2. 遍历搜索路径
+    for (const auto& dir_str : library_paths) {
+        fs::path dir(dir_str); // 使用 fs::path 自动处理路径分隔符
+
+        // 构造完整路径
+        // operator/ 会自动处理中间的 '/'，比字符串拼接更安全
+        fs::path dylib_full_path = dir / dynamic_name;
+        fs::path static_full_path = dir / static_name;
+
+        // 3. 应用优先级规则
+
+        // 策略 A: 强制静态链接 (-static)
+        // 只找 .ar，完全忽略 .so
+        if (force_static) {
+            if (file_exists(static_full_path.string())) {
+                return static_full_path.string();
+            }
+            // 当前目录没找到 .ar，去下一个目录找
+            continue;
+        }
+
+        // 策略 B: 默认模式 (Dynamic Mode)
+        // 优先找 .so，其次找 .ar
+        // 注意：ld 的行为是在同一个目录下，.so 优先级高于 .ar
+        bool has_so = file_exists(dylib_full_path.string());
+        bool has_ar = file_exists(static_full_path.string());
+
+        if (has_so) {
+            return dylib_full_path.string();
+        }
+        if (has_ar) {
+            // 虽然是默认模式，但只找到了静态库，那也可以用
+            return static_full_path.string();
+        }
+    }
+
+    // 4. 找遍所有目录都没找到 -> 报错
+    throw std::runtime_error("cannot find -l" + lib_name);
+}
+
 void FLE_ar(const std::vector<std::string>& args)
 {
     if (args.size() < 2) {
@@ -284,6 +355,12 @@ void FLE_ar(const std::vector<std::string>& args)
     std::ofstream out(outfile);
     out << ar_json.dump(4) << std::endl;
 }
+
+struct InputItem {
+    enum Type { File,
+        Library } type;
+    std::string value;
+};
 
 int main(int argc, char* argv[])
 {
@@ -340,41 +417,57 @@ int main(int argc, char* argv[])
             }
             FLE_exec(load_fle(args[0]));
         } else if (tool == "FLE_ld") {
-            std::string outfile = "a.out";
-            std::vector<std::string> input_files;
+            LinkerOptions options;
+            std::vector<InputItem> ordered_inputs;
+            std::vector<std::string> lib_paths;
 
-            for (size_t i = 0; i < args.size(); ++i) {
-                if (args[i] == "-o" && i + 1 < args.size()) {
-                    outfile = args[++i];
-                } else {
-                    input_files.push_back(args[i]);
-                }
+            ArgParser parser("ld");
+
+            parser.add_option(options.outputFile, "-o, --output", "Output file");
+            parser.add_option(options.entryPoint, "-e, --entry", "Entry point");
+            parser.add_flag(options.shared, "-shared", "Create shared library");
+            parser.add_flag(options.is_static, "-static", "Static linking");
+            parser.add_multi_option(lib_paths, "-L", "Add library search path");
+
+            parser.add_option_cb("-l", "Link library", [&](std::string lib_name) {
+                ordered_inputs.push_back({ InputItem::Library, lib_name });
+            });
+
+            parser.on_positional([&](std::string file_path) {
+                ordered_inputs.push_back({ InputItem::File, file_path });
+            });
+
+            try {
+                parser.parse(args);
+            } catch (const ArgParser::HelpRequested&) {
+                return 0;
+            } catch (const std::exception& e) {
+                std::cerr << "Error: " << e.what() << "\n";
+                return 1;
             }
 
-            if (input_files.empty()) {
-                throw std::runtime_error("No input files specified");
+            if (ordered_inputs.empty()) {
+                std::cerr << "Error: No inputs\n";
+                return 1;
             }
 
             std::vector<FLEObject> objects;
-            for (const auto& file : input_files) {
-                objects.push_back(load_fle(file));
+            lib_paths.push_back("./");
+
+            for (const auto& item : ordered_inputs) {
+                if (item.type == InputItem::File) {
+                    objects.push_back(load_fle(item.value));
+                } else if (item.type == InputItem::Library) {
+                    std::string path = find_library(item.value, lib_paths, options.is_static);
+                    objects.push_back(load_fle(path));
+                }
             }
 
-            // for (const auto& obj : objects) {
-            //     std::cerr << "Object type: " << obj.type << std::endl;
-            //     std::cerr << "Symbols:" << std::endl;
-            //     for (const auto& sym : obj.symbols) {
-            //         std::cerr << "  " << sym.name << " in " << sym.section << std::endl;
-            //     }
-            // }
+            FLEObject result = FLE_ld(objects, options);
 
-            // 链接
-            FLEObject linked_obj = FLE_ld(objects);
-
-            // 写入文件
             FLEWriter writer;
-            FLE_objdump(linked_obj, writer);
-            writer.write_to_file(outfile);
+            FLE_objdump(result, writer);
+            writer.write_to_file(options.outputFile);
         } else if (tool == "FLE_cc") {
             FLE_cc(args);
         } else if (tool == "FLE_readfle") {
