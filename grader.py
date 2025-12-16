@@ -7,98 +7,15 @@ import subprocess
 import sys
 import time
 import traceback
-import venv
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol, Tuple
 
-
-def create_venv(venv_path):
-    if venv_path.exists():
-        shutil.rmtree(venv_path)
-    print("Creating virtual environment...", flush=True)
-    venv.create(venv_path, with_pip=True)
-    print(f"Virtual environment will be created at: {venv_path}", flush=True)
-
-
-def install_requirements(venv_path):
-    pip_path = venv_path / ("Scripts" if sys.platform == "win32" else "bin") / "pip"
-    requirements_path = Path(__file__).parent / "requirements.txt"
-    print("Installing dependencies...", flush=True)
-    subprocess.run(
-        [
-            str(pip_path),
-            "install",
-            "-r",
-            str(requirements_path),
-            "-i",
-            "https://pypi.tuna.tsinghua.edu.cn/simple",
-        ],
-        check=True,
-    )
-
-
-def ensure_venv():
-    # 首先检查本地是否已安装必需的包
-    try:
-        import rich
-        import tomli
-
-        return True
-    except ImportError:
-        pass
-
-    venv_dir = Path(__file__).parent / ".venv"
-    python_path = (
-        venv_dir / ("Scripts" if sys.platform == "win32" else "bin") / "python"
-    )
-    pip_path = venv_dir / ("Scripts" if sys.platform == "win32" else "bin") / "pip"
-
-    # 检查是否已在虚拟环境中运行
-    if os.environ.get("GRADER_VENV"):
-        try:
-            install_requirements(venv_dir)
-            return True
-        except Exception as e:
-            print(
-                f"Error: Failed to set up virtual environment: {str(e)}",
-                file=sys.stderr,
-            )
-            if venv_dir.exists():
-                shutil.rmtree(venv_dir)
-
-            sys.exit(1)
-
-    try:
-        # 如果存在虚拟环境，直接使用
-        if venv_dir.exists() and python_path.exists() and pip_path.exists():
-            pass
-        else:
-            # 创建新的虚拟环境
-            create_venv(venv_dir)
-            install_requirements(venv_dir)
-
-        # 使用虚拟环境重新运行脚本
-        env = os.environ.copy()
-        env["GRADER_VENV"] = "1"
-        subprocess.run(
-            [str(python_path), __file__] + sys.argv[1:], env=env, check=False
-        )
-        return False
-
-    except Exception as e:
-        print(f"Error: Failed to set up virtual environment: {str(e)}", file=sys.stderr)
-        # 如果虚拟环境创建失败，清理现有的虚拟环境
-        if venv_dir.exists():
-            shutil.rmtree(venv_dir)
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    if not ensure_venv():
-        sys.exit(0)
-
+# --- BOOTSTRAP: Auto-setup environment ---
+import bootstrap
+bootstrap.initialize()
+# -----------------------------------------
 
 import tomli  # noqa: E402
 from rich.console import Console  # noqa: E402

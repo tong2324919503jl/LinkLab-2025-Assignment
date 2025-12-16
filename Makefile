@@ -1,13 +1,35 @@
 CXX ?= g++
-CXXFLAGS = -std=c++17 -Wall -Wextra -I./include -fPIE
+
+# ================= 配置读取与检查逻辑 =================
+# 1. 配置文件名
+STD_CONFIG_FILE := cxx_std
+
+# 2. 读取配置，如果文件不存在，默认使用 c++17 并发出警告
+ifeq ($(wildcard $(STD_CONFIG_FILE)),)
+    target_std := c++17
+    $(warning "Warning: $(STD_CONFIG_FILE) not found. Defaulting to C++17. Run 'make config' to configure.")
+else
+    target_std := $(shell cat $(STD_CONFIG_FILE))
+endif
+
+# 3. 检查当前编译器是否真的支持这个标准
+#    (避免学生手动改了文件写个 c++99 导致编译报错看不懂，或者评测机环境太老)
+STD_CHECK := $(shell $(CXX) -std=$(target_std) -x c++ -E /dev/null >/dev/null 2>&1 && echo "ok")
+
+ifneq ($(STD_CHECK),ok)
+    $(error "Error: The configured standard '$(target_std)' is NOT supported by the current compiler ($(CXX)). Please run 'make config' or upgrade your compiler.")
+endif
+
+# =======================================================
+
+# 使用读取到的标准
+CXXFLAGS = -std=$(target_std) -Wall -Wextra -I./include -fPIE
 
 ifdef DEBUG
     CXXFLAGS += -g -O0
 else
     CXXFLAGS += -O2
 endif
-
-REQUIRED_CXX_STANDARD = 17
 
 # 上一次的编译参数记录文件
 LAST_FLAGS_FILE = .last_cxxflags
@@ -40,18 +62,13 @@ endif
 #=============================================================================
 
 # 默认目标
-all: check_compiler $(TOOLS)
+all: show_info $(TOOLS)
 
-# 检查编译器版本和标准支持
-check_compiler:
-	@echo "Checking compiler configuration..."
-	@echo "Current compiler: $$($(CXX) --version | head -n 1)"
-	@if ! $(CXX) -std=c++$(REQUIRED_CXX_STANDARD) -dM -E -x c++ - < /dev/null > /dev/null 2>&1; then \
-		echo "Error: $(CXX) does not support C++$(REQUIRED_CXX_STANDARD)"; \
-		exit 1; \
-	fi
-	@echo "Compiler supports C++$(REQUIRED_CXX_STANDARD) ✓"
-	@echo "Compiler check completed"
+# 显示当前编译信息
+show_info:
+	@echo "------------------------"
+	@echo "Compiler: $$($(CXX) --version | head -n 1)"
+	@echo "Standard: $(target_std)"
 	@echo "------------------------"
 
 # 编译源文件
@@ -67,6 +84,9 @@ $(TOOLS): $(BASE_EXEC)
 	@if [ ! -L $@ ] || [ ! -e $@ ]; then \
 		ln -sf $(BASE_EXEC) $@; \
 	fi
+
+config:
+	python3 configure.py
 
 # 清理编译产物
 clean:
@@ -102,4 +122,4 @@ test_8: all
 retest: all
 	python3 grader.py -f
 
-.PHONY: all clean test check_compiler test_1 test_2 test_3 test_4 test_5 test_6 test_8 retest
+.PHONY: all clean test show_info test_1 test_2 test_3 test_4 test_5 test_6 test_8 retest config
