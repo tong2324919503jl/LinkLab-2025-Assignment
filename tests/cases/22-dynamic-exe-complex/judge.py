@@ -51,7 +51,7 @@ def judge():
             }))
             return
         
-        func_got_relocs = [r for r in dyn_relocs if r.get("section") == ".got" and r.get("symbol", "").startswith("func_")]
+        func_got_relocs = [r for r in dyn_relocs if r.get("section") == ".data" and r.get("symbol", "").startswith("func_")]
         func_counts = {}
         for reloc in func_got_relocs:
             func_counts[reloc["symbol"]] = func_counts.get(reloc["symbol"], 0) + 1

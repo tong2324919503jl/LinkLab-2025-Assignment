@@ -2,13 +2,14 @@
 import re
 
 _DYN_RELOC_PATTERN = re.compile(
-    r"^❓:\s*\.(dynrel|dynabs64|dynabs32)\(\s*([\w.$@]+)\s*([+-])\s*([0-9A-Fa-fxX]+)\s*\)$"
+    r"^❓:\s*\.(dynrel|dynabs64|dynabs32|dyngotpcrel)\(\s*([\w.$@]+)\s*([+-])\s*([0-9A-Fa-fxX]+)\s*\)$"
 )
 
 _TYPE_MAP = {
     "dynabs32": 0,  # R_X86_64_32
     "dynrel": 1,    # R_X86_64_PC32
     "dynabs64": 2,  # R_X86_64_64
+    "dyngotpcrel": 4,  # R_X86_64_GOTPCREL
 }
 
 

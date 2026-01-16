@@ -128,9 +128,7 @@ void FLE_objdump(const FLEObject& obj, FLEWriter& writer)
                 case RelocationType::R_X86_64_32S:
                     return dynamic ? ".dynabs32" : ".abs32s";
                 case RelocationType::R_X86_64_GOTPCREL:
-                    if (!dynamic)
-                        return ".gotpcrel";
-                    break;
+                    return dynamic ? ".dyngotpcrel" : ".gotpcrel";
                 }
                 throw std::runtime_error("Unsupported relocation type in objdump");
             };
