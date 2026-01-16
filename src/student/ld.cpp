@@ -360,7 +360,7 @@ FLEObject FLE_ld(const vector<FLEObject>& objects, const LinkerOptions& options)
     if (plt_size) plt_patched.insert(plt_patched.end(), output_data.begin() + text_data.size(), output_data.begin() + text_data.size() + plt_size);
     rodata_patched.insert(rodata_patched.end(), output_data.begin() + text_data.size() + plt_size, output_data.begin() + text_data.size() + plt_size + rodata_data.size());
     data_patched.insert(data_patched.end(), output_data.begin() + text_data.size() + plt_size + rodata_data.size(), output_data.end());
-//这个怎么push呀
+//这个怎么push呀呀
     // 构建 PLT stub：写入 GOT 相对偏移
     if (plt_size) {
         for (const auto& kv : got_index) {
