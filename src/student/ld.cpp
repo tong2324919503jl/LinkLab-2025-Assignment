@@ -234,7 +234,7 @@ FLEObject FLE_ld(const vector<FLEObject>& objects, const LinkerOptions& options)
     auto lookup_addr = [&](const FLEObject* obj, const string& name) -> uint64_t {
         auto lit = locals.find(obj);   
         if (lit != locals.end()) {
-            auto fit = lit->second.find(name);
+            auto fit = lit->second.find(name);  
             if (fit != lit->second.end()) return fit->second;
         }
         auto git = globals.find(name);
