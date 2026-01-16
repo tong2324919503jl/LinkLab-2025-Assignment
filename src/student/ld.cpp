@@ -447,7 +447,7 @@ FLEObject FLE_ld(const vector<FLEObject>& objects, const LinkerOptions& options)
                 size_t off = (size_t)((base + sym.offset) - out_base);
                 output.symbols.push_back(Symbol{ sym.type, out_sec, off, sym.size, sym.name });
             }
-        }
+        } 
         // 记录依赖的共享库
         for (auto* so : shared_deps) if (!so->name.empty()) output.needed.push_back(so->name);
         // 入口点
